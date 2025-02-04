@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>CRS比較デモ（MapLibre版）</title>
+  <!-- MapLibre GL のCSS -->
+  <link href="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css" rel="stylesheet" />
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-wrap: wrap;
+      font-family: sans-serif;
+      background: #f5f5f5;
+    }
+    /* 各マップを横3列程度で配置（必要に応じて調整） */
+    .map-container {
+      position: relative;
+      width: 32%;
+      height: 400px;
+      margin: 1%;
+      border: 1px solid #ccc;
+      box-sizing: border-box;
+      background: #fff;
+    }
+    .map-label {
+      position: absolute;
+      top: 5px;
+      left: 5px;
+      background: rgba(255,255,255,0.9);
+      padding: 2px 5px;
+      z-index: 1;
+      font-weight: bold;
+      font-size: 14px;
+    }
+    .coordinate-display {
+      position: absolute;
+      bottom: 5px;
+      left: 5px;
+      background: rgba(255,255,255,0.9);
+      padding: 2px 5px;
+      z-index: 1;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <!-- 各CRSごとのマップコンテナ -->
+  <div id="map6674" class="map-container">
+    <div class="map-label">EPSG:6674</div>
+    <div class="coordinate-display" id="coord6674"></div>
+  </div>
+  <div id="map6668" class="map-container">
+    <div class="map-label">EPSG:6668</div>
+    <div class="coordinate-display" id="coord6668"></div>
+  </div>
+  <div id="map6690" class="map-container">
+    <div class="map-label">EPSG:6690</div>
+    <div class="coordinate-display" id="coord6690"></div>
+  </div>
+  <div id="map4326" class="map-container">
+    <div class="map-label">EPSG:4326</div>
+    <div class="coordinate-display" id="coord4326"></div>
+  </div>
+  <div id="map3857" class="map-container">
+    <div class="map-label">EPSG:3857</div>
+    <div class="coordinate-display" id="coord3857"></div>
+  </div>
+
+  <!-- MapLibre GL JS -->
+  <script src="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js"></script>
+  <!-- Proj4js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.8.0/proj4.js"></script>
+  <!-- maplibre-gl-proj プラグイン（カスタムCRS用） -->
+  <script src="https://unpkg.com/maplibre-gl-proj@latest/dist/maplibre-gl-proj.js"></script>
+
+  <script>
+    // 大阪中心の地理座標（EPSG:4326）
+    const centerOsaka = [135.5023, 34.6937];
+
+    /* --- Proj4の定義 --- */
+    // EPSG:4326 と EPSG:3857 は既知の定義なので定義不要
+
+    // EPSG:6674 – JGD2000 / Japan Plane Rectangular CS XI  
+    // ※公式定義例: 中央緯度 36°, 中央経線 139°50′00″ (139.8333333°), scale factor 0.9999  
+    proj4.defs("EPSG:6674", "+proj=tmerc +lat_0=36 +lon_0=139.8333333333333 +k=0.9999 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs");
+
+    // EPSG:6668 – JGD2000 / Japan Plane Rectangular CS VII  
+    // ※公式定義例: 中央緯度 36°, 中央経線 137°10′00″ (137.1666667°), scale factor 0.9999  
+    proj4.defs("EPSG:6668", "+proj=tmerc +lat_0=36 +lon_0=137.1666666666667 +k=0.9999 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs");
+
+    // EPSG:6690 – JGD2000 / Japan Plane Rectangular CS XIII  
+    // ※公式定義例: 中央緯度 36°, 中央経線 141°10′00″ (141.1666667°), scale factor 0.9999  
+    proj4.defs("EPSG:6690", "+proj=tmerc +lat_0=36 +lon_0=141.1666666666667 +k=0.9999 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs");
+
+    /* --- MapLibre用のカスタム投影設定 --- */
+    // maplibre-gl-proj プラグインでは、オプション { projection: { name, customProj } } を指定します。
+    // customProj に proj4 で定義済みのCRSコードを指定してください。
+    function getProjectionConfig(crsCode) {
+      if (crsCode === 'EPSG:6674' ||
+          crsCode === 'EPSG:6668' ||
+          crsCode === 'EPSG:6690' ||
+          crsCode === 'EPSG:4326') {
+        return {
+          name: 'custom',
+          customProj: crsCode
+        };
+      } else if (crsCode === 'EPSG:3857') {
+        return {
+          name: 'mercator'  // MapLibre の標準 WebMercator
+        };
+      }
+    }
+
+    // マップを生成する共通関数
+    function createMap(containerId, crsCode) {
+      const map = new maplibregl.Map({
+        container: containerId,
+        style: 'https://demotiles.maplibre.org/style.json',
+        center: centerOsaka, // 入力は EPSG:4326 の座標
+        zoom: 10,
+        projection: getProjectionConfig(crsCode)
+      });
+
+      // 各マップの中央にマーカーを配置
+      new maplibregl.Marker().setLngLat(centerOsaka).addTo(map);
+
+      // クリックした位置の座標を、そのCRSで解釈した値として表示
+      map.on('click', function(e) {
+        // maplibre-gl-proj プラグインが有効な場合、e.lngLat はそのマップの投影に沿った値になります
+        const lng = e.lngLat.lng.toFixed(5);
+        const lat = e.lngLat.lat.toFixed(5);
+        const coordText = `座標: ${lng}, ${lat}`;
+        // コンテナIDは "coord" + CRS番号の数字部分（例："EPSG:6674" → "coord6674"）
+        const id = "coord" + crsCode.slice(5);
+        document.getElementById(id).innerHTML = coordText;
+      });
+
+      return map;
+    }
+
+    // 各CRSごとにマップを生成
+    const map6674 = createMap('map6674', 'EPSG:6674');
+    const map6668 = createMap('map6668', 'EPSG:6668');
+    const map6690 = createMap('map6690', 'EPSG:6690');
+    const map4326 = createMap('map4326', 'EPSG:4326');
+    const map3857 = createMap('map3857', 'EPSG:3857');
+
+    // --- オプション: マップ間の移動・ズーム同期 ---
+    // ここでは EPSG:3857 のマップをマスターとして、他のマップも同じ中心・ズームに更新する例です
+    function syncMaps(masterMap, mapsToSync) {
+      masterMap.on('move', () => {
+        const center = masterMap.getCenter();
+        const zoom = masterMap.getZoom();
+        mapsToSync.forEach(map => {
+          map.setCenter(center);
+          map.setZoom(zoom);
+        });
+      });
+    }
+    syncMaps(map3857, [map6674, map6668, map6690, map4326]);
+  </script>
+</body>
+</html>
