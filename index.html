@@ -52,7 +52,7 @@
       z-index: 2;
       font-size: 12px;
     }
-    /* ボタンはオプション：ここでは各マップに「切替」ボタンを配置 */
+    /* 各マップ内の切替ボタン */
     .toggle-btn {
       position: absolute;
       top: 60px;
@@ -85,7 +85,7 @@
   </div>
   <div id="map4326" class="map-container">
     <div class="map-label">EPSG:4326</div>
-    <div class="legend">青: 正しい解釈<br>赤: 誤った解釈</div>
+    <div class="legend">青: 正しい解釈<br>赤: 誤った解釈<br>(EPSG:4326は同一)</div>
     <button class="toggle-btn" id="toggle4326">切替</button>
     <div class="coordinate-display" id="coord4326"></div>
   </div>
@@ -140,42 +140,43 @@
       }
     }
 
-    // 各マップごとに、正しいマーカーと誤ったマーカーを管理するオブジェクト
+    // マーカー管理用オブジェクト（各CRSごとに正しい・誤ったマーカーを保持）
     const maps = {};
     const markers = {}; // { crsCode: { correct: Marker, wrong: Marker, showWrong: boolean } }
 
-    // マップを生成する共通関数
+    // マップ生成用の共通関数
     function createMap(containerId, crsCode) {
       const map = new maplibregl.Map({
         container: containerId,
         style: 'https://demotiles.maplibre.org/style.json',
-        center: centerOsaka, // 入力はEPSG:4326の座標
+        center: centerOsaka, // 入力は EPSG:4326 の座標
         zoom: 10,
         projection: getProjectionConfig(crsCode)
       });
 
-      // 正しいマーカー（青：通常の marker として追加）
+      // 青いマーカー（正しい解釈）: 入力座標 centerOsaka をそのまま渡す
       const correctMarker = new maplibregl.Marker({ color: 'blue' })
                               .setLngLat(centerOsaka)
                               .addTo(map);
 
-      // 誤ったマーカー（赤：数値そのままを解釈）
-      // ここでは、centerOsaka（[135.5023, 34.6937]）の数値をそのまま利用して
-      // CRS固有の解釈で描画される場合の位置として表示します。
-      // ※「正しい変換」を行わずに数値をそのまま用いるので、CRSが異なると見かけ上ずれが生じます。
+      // 赤いマーカー（誤った解釈）:
+      // → 本来の centerOsaka を、まず対象CRSへ一度変換（proj4）した結果を得る
+      // → その値を「地理座標」として渡すと、MapLibre はさらに対象CRSへ変換してしまう
+      // これにより、正しい変換との差が生じます
+      const wrongCoord = proj4('EPSG:4326', crsCode, centerOsaka);
       const wrongMarker = new maplibregl.Marker({ color: 'red' })
-                            .setLngLat(centerOsaka)
+                            .setLngLat(wrongCoord)
                             .addTo(map);
-      // 初期状態は「正しい解釈」のみ表示（誤ったマーカーは非表示）
+      // 初期状態では正しい解釈のみ表示（赤いマーカーは非表示）
       wrongMarker.getElement().style.display = 'none';
 
       markers[crsCode] = {
         correct: correctMarker,
         wrong: wrongMarker,
-        showWrong: false // フラグ：false＝正しい解釈を表示
+        showWrong: false // false = 正しい解釈表示中
       };
 
-      // クリックで座標表示（そのマップの投影に沿った値）
+      // クリックで、そのマップ上の座標を表示（そのマップの投影に沿った値）
       map.on('click', function(e) {
         const lng = e.lngLat.lng.toFixed(5);
         const lat = e.lngLat.lat.toFixed(5);
@@ -186,14 +187,14 @@
       return map;
     }
 
-    // 各CRSごとにマップ生成
+    // 各CRSごとにマップを生成
     maps['EPSG:6674'] = createMap('map6674', 'EPSG:6674');
     maps['EPSG:6668'] = createMap('map6668', 'EPSG:6668');
     maps['EPSG:6690'] = createMap('map6690', 'EPSG:6690');
     maps['EPSG:4326'] = createMap('map4326', 'EPSG:4326');
     maps['EPSG:3857'] = createMap('map3857', 'EPSG:3857');
 
-    // 各マップの「切替」ボタンにより、正しい/誤った解釈をトグル
+    // 切替ボタンで正しい/誤った解釈のマーカーをトグル表示
     function toggleMarker(crsCode) {
       const markerObj = markers[crsCode];
       markerObj.showWrong = !markerObj.showWrong;
@@ -206,14 +207,13 @@
       }
     }
 
-    // ボタンのイベント登録
     document.getElementById('toggle6674').addEventListener('click', () => toggleMarker('EPSG:6674'));
     document.getElementById('toggle6668').addEventListener('click', () => toggleMarker('EPSG:6668'));
     document.getElementById('toggle6690').addEventListener('click', () => toggleMarker('EPSG:6690'));
     document.getElementById('toggle4326').addEventListener('click', () => toggleMarker('EPSG:4326'));
     document.getElementById('toggle3857').addEventListener('click', () => toggleMarker('EPSG:3857'));
 
-    // ※補足: 各マップ間の中心・ズームの同期を行う場合は、例えばEPSG:3857をマスターとして以下のように同期可能です
+    // ※オプション: マップ間の中心・ズームの同期（ここでは EPSG:3857 をマスターに）
     function syncMaps(masterMap, mapsToSync) {
       masterMap.on('move', () => {
         const center = masterMap.getCenter();
@@ -224,7 +224,6 @@
         });
       });
     }
-    // ここではEPSG:3857をマスターにして同期させる例（任意）
     syncMaps(maps['EPSG:3857'], [maps['EPSG:6674'], maps['EPSG:6668'], maps['EPSG:6690'], maps['EPSG:4326']]);
   </script>
 </body>
