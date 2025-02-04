@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>CRS比較デモ（正誤解釈の比較）</title>
+  <title>CRS比較デモ（正誤解釈の比較・OSMタイル版）</title>
   <!-- MapLibre GL のCSS -->
   <link href="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css" rel="stylesheet" />
   <style>
@@ -14,7 +14,7 @@
       font-family: sans-serif;
       background: #f5f5f5;
     }
-    /* 各マップを横3列程度で配置（必要に応じて調整） */
+    /* 各マップの配置 */
     .map-container {
       position: relative;
       width: 32%;
@@ -52,7 +52,6 @@
       z-index: 2;
       font-size: 12px;
     }
-    /* 各マップ内の切替ボタン */
     .toggle-btn {
       position: absolute;
       top: 60px;
@@ -100,15 +99,42 @@
   <script src="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js"></script>
   <!-- Proj4js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.8.0/proj4.js"></script>
-  <!-- maplibre-gl-proj プラグイン（カスタムCRS用） -->
+  <!-- maplibre-gl-proj プラグイン -->
   <script src="https://unpkg.com/maplibre-gl-proj@latest/dist/maplibre-gl-proj.js"></script>
 
   <script>
+    /* ■ OSMタイルを利用するためのスタイルJSONを定義 */
+    const osmStyle = {
+      "version": 8,
+      "name": "OSM",
+      "sources": {
+        "osm": {
+          "type": "raster",
+          "tiles": [
+            "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+            "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+            "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          ],
+          "tileSize": 256,
+          "attribution": "© OpenStreetMap contributors"
+        }
+      },
+      "layers": [
+        {
+          "id": "osm",
+          "type": "raster",
+          "source": "osm",
+          "minzoom": 0,
+          "maxzoom": 19
+        }
+      ]
+    };
+
     // 大阪中心の座標（EPSG:4326）
     const centerOsaka = [135.5023, 34.6937];
 
     /* --- Proj4の定義 --- */
-    // ※EPSG:4326, EPSG:3857 は既知のため定義不要
+    // EPSG:4326, EPSG:3857は既知の定義なので定義不要
 
     // EPSG:6674 – JGD2000 / Japan Plane Rectangular CS XI  
     // 公式例: 中央緯度 36°, 中央経線 139°50′00″ (139.8333333°), scale factor 0.9999  
@@ -123,7 +149,6 @@
     proj4.defs("EPSG:6690", "+proj=tmerc +lat_0=36 +lon_0=141.1666666666667 +k=0.9999 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs");
 
     /* --- MapLibre用のカスタム投影設定 --- */
-    // maplibre-gl-proj プラグインでは { projection: { name, customProj } } オプションを指定します。
     function getProjectionConfig(crsCode) {
       if (crsCode === 'EPSG:6674' ||
           crsCode === 'EPSG:6668' ||
@@ -140,16 +165,16 @@
       }
     }
 
-    // マーカー管理用オブジェクト（各CRSごとに正しい・誤ったマーカーを保持）
+    // マーカー管理用オブジェクト
     const maps = {};
     const markers = {}; // { crsCode: { correct: Marker, wrong: Marker, showWrong: boolean } }
 
-    // マップ生成用の共通関数
+    // マップ生成用共通関数
     function createMap(containerId, crsCode) {
       const map = new maplibregl.Map({
         container: containerId,
-        style: 'https://demotiles.maplibre.org/style.json',
-        center: centerOsaka, // 入力は EPSG:4326 の座標
+        style: osmStyle,  // OSMタイルを利用するスタイル
+        center: centerOsaka, // 入力はEPSG:4326
         zoom: 10,
         projection: getProjectionConfig(crsCode)
       });
@@ -160,23 +185,21 @@
                               .addTo(map);
 
       // 赤いマーカー（誤った解釈）:
-      // → 本来の centerOsaka を、まず対象CRSへ一度変換（proj4）した結果を得る
-      // → その値を「地理座標」として渡すと、MapLibre はさらに対象CRSへ変換してしまう
-      // これにより、正しい変換との差が生じます
+      // → 入力値 centerOsaka を一度対象CRSへ変換し、その結果を「地理座標」として渡す
       const wrongCoord = proj4('EPSG:4326', crsCode, centerOsaka);
       const wrongMarker = new maplibregl.Marker({ color: 'red' })
                             .setLngLat(wrongCoord)
                             .addTo(map);
-      // 初期状態では正しい解釈のみ表示（赤いマーカーは非表示）
+      // 初期状態は正しい解釈のみ表示
       wrongMarker.getElement().style.display = 'none';
 
       markers[crsCode] = {
         correct: correctMarker,
         wrong: wrongMarker,
-        showWrong: false // false = 正しい解釈表示中
+        showWrong: false
       };
 
-      // クリックで、そのマップ上の座標を表示（そのマップの投影に沿った値）
+      // クリック時にその地点の座標を表示（そのマップの投影に沿った値）
       map.on('click', function(e) {
         const lng = e.lngLat.lng.toFixed(5);
         const lat = e.lngLat.lat.toFixed(5);
@@ -187,14 +210,14 @@
       return map;
     }
 
-    // 各CRSごとにマップを生成
+    // 各CRSごとにマップ生成
     maps['EPSG:6674'] = createMap('map6674', 'EPSG:6674');
     maps['EPSG:6668'] = createMap('map6668', 'EPSG:6668');
     maps['EPSG:6690'] = createMap('map6690', 'EPSG:6690');
     maps['EPSG:4326'] = createMap('map4326', 'EPSG:4326');
     maps['EPSG:3857'] = createMap('map3857', 'EPSG:3857');
 
-    // 切替ボタンで正しい/誤った解釈のマーカーをトグル表示
+    // 切替ボタンによるマーカー表示のトグル
     function toggleMarker(crsCode) {
       const markerObj = markers[crsCode];
       markerObj.showWrong = !markerObj.showWrong;
@@ -206,14 +229,13 @@
         markerObj.correct.getElement().style.display = 'block';
       }
     }
-
     document.getElementById('toggle6674').addEventListener('click', () => toggleMarker('EPSG:6674'));
     document.getElementById('toggle6668').addEventListener('click', () => toggleMarker('EPSG:6668'));
     document.getElementById('toggle6690').addEventListener('click', () => toggleMarker('EPSG:6690'));
     document.getElementById('toggle4326').addEventListener('click', () => toggleMarker('EPSG:4326'));
     document.getElementById('toggle3857').addEventListener('click', () => toggleMarker('EPSG:3857'));
 
-    // ※オプション: マップ間の中心・ズームの同期（ここでは EPSG:3857 をマスターに）
+    // ※オプション: マップ間の中心・ズームの同期（ここではEPSG:3857をマスター）
     function syncMaps(masterMap, mapsToSync) {
       masterMap.on('move', () => {
         const center = masterMap.getCenter();
