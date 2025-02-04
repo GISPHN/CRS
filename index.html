@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>CRS比較デモ（正誤解釈の比較・OSMタイル版）</title>
+  <title>CRS比較デモ（正誤解釈の比較・OSMタイル／ブランク背景版）</title>
   <!-- MapLibre GL のCSS -->
   <link href="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css" rel="stylesheet" />
   <style>
@@ -103,7 +103,8 @@
   <script src="https://unpkg.com/maplibre-gl-proj@latest/dist/maplibre-gl-proj.js"></script>
 
   <script>
-    /* ■ OSMタイルを利用するためのスタイルJSONを定義 */
+    /* ■ スタイル定義 */
+    // EPSG:3857用はOSMラスタタイルを利用
     const osmStyle = {
       "version": 8,
       "name": "OSM",
@@ -129,23 +130,35 @@
         }
       ]
     };
+    // その他CRS用はブランクスタイル（背景色のみ）にする
+    const blankStyle = {
+      "version": 8,
+      "name": "Blank",
+      "sources": {},
+      "layers": [
+        {
+          "id": "background",
+          "type": "background",
+          "paint": {
+            "background-color": "#eeeeee"
+          }
+        }
+      ]
+    };
 
     // 大阪中心の座標（EPSG:4326）
     const centerOsaka = [135.5023, 34.6937];
 
     /* --- Proj4の定義 --- */
-    // EPSG:4326, EPSG:3857は既知の定義なので定義不要
+    // EPSG:4326, EPSG:3857は既知のため定義不要
 
     // EPSG:6674 – JGD2000 / Japan Plane Rectangular CS XI  
-    // 公式例: 中央緯度 36°, 中央経線 139°50′00″ (139.8333333°), scale factor 0.9999  
     proj4.defs("EPSG:6674", "+proj=tmerc +lat_0=36 +lon_0=139.8333333333333 +k=0.9999 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs");
 
     // EPSG:6668 – JGD2000 / Japan Plane Rectangular CS VII  
-    // 公式例: 中央緯度 36°, 中央経線 137°10′00″ (137.1666667°), scale factor 0.9999  
     proj4.defs("EPSG:6668", "+proj=tmerc +lat_0=36 +lon_0=137.1666666666667 +k=0.9999 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs");
 
     // EPSG:6690 – JGD2000 / Japan Plane Rectangular CS XIII  
-    // 公式例: 中央緯度 36°, 中央経線 141°10′00″ (141.1666667°), scale factor 0.9999  
     proj4.defs("EPSG:6690", "+proj=tmerc +lat_0=36 +lon_0=141.1666666666667 +k=0.9999 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs");
 
     /* --- MapLibre用のカスタム投影設定 --- */
@@ -171,21 +184,25 @@
 
     // マップ生成用共通関数
     function createMap(containerId, crsCode) {
+      // EPSG:3857の場合はOSMスタイル、その他はblankStyleを使用
+      const styleToUse = (crsCode === 'EPSG:3857') ? osmStyle : blankStyle;
+      
       const map = new maplibregl.Map({
         container: containerId,
-        style: osmStyle,  // OSMタイルを利用するスタイル
-        center: centerOsaka, // 入力はEPSG:4326
+        style: styleToUse,
+        center: centerOsaka, // 入力はEPSG:4326の座標
         zoom: 10,
         projection: getProjectionConfig(crsCode)
       });
 
-      // 青いマーカー（正しい解釈）: 入力座標 centerOsaka をそのまま渡す
+      // 青いマーカー（正しい解釈）：入力座標 centerOsaka をそのまま渡す
       const correctMarker = new maplibregl.Marker({ color: 'blue' })
                               .setLngLat(centerOsaka)
                               .addTo(map);
 
-      // 赤いマーカー（誤った解釈）:
-      // → 入力値 centerOsaka を一度対象CRSへ変換し、その結果を「地理座標」として渡す
+      // 赤いマーカー（誤った解釈）：
+      // → 入力値 centerOsaka をまず対象CRSへ変換し、その結果をそのまま渡すと、
+      //    MapLibre側でさらに変換され、位置がずれる
       const wrongCoord = proj4('EPSG:4326', crsCode, centerOsaka);
       const wrongMarker = new maplibregl.Marker({ color: 'red' })
                             .setLngLat(wrongCoord)
@@ -199,7 +216,7 @@
         showWrong: false
       };
 
-      // クリック時にその地点の座標を表示（そのマップの投影に沿った値）
+      // クリック時にその地点の座標を表示（マップの投影に沿った値）
       map.on('click', function(e) {
         const lng = e.lngLat.lng.toFixed(5);
         const lat = e.lngLat.lat.toFixed(5);
